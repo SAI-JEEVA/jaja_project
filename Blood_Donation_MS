@@ -1,0 +1,352 @@
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+import java.io.*;
+
+/*
+ * Blood Donation Management System
+ * Single-file implementation: Main.java
+ *
+ * To compile:
+ *   javac Main.java
+ * To run:
+ *   java Main
+ */
+
+public class Main {
+    private static Scanner scanner = new Scanner(System.in);
+    private static BloodBankManager manager = new BloodBankManager();
+
+    public static void main(String[] args) {
+        manager.loadFromFile("blood_data.txt"); // try to load saved data
+        while(true) {
+            showMenu();
+            String choice = scanner.nextLine().trim();
+            switch(choice) {
+                case "1": addDonor(); break;
+                case "2": listDonors(); break;
+                case "3": addBloodUnit(); break;
+                case "4": listInventory(); break;
+                case "5": matchRecipient(); break;
+                case "6": removeExpired(); break;
+                case "7": saveData(); break;
+                case "8": loadData(); break;
+                case "9": System.out.println("Exiting..."); manager.saveToFile("blood_data.txt"); System.exit(0); break;
+                default: System.out.println("Invalid choice. Try again.");
+            }
+        }
+    }
+
+    private static void showMenu() {
+        System.out.println("\n=== Blood Donation Management System ===");
+        System.out.println("1. Register Donor");
+        System.out.println("2. List Donors");
+        System.out.println("3. Add Blood Unit (donation)");
+        System.out.println("4. List Inventory");
+        System.out.println("5. Match Recipient");
+        System.out.println("6. Remove Expired Units");
+        System.out.println("7. Save Data");
+        System.out.println("8. Load Data");
+        System.out.println("9. Exit");
+        System.out.print("Choose an option: ");
+    }
+
+    private static void addDonor() {
+        System.out.print("Enter donor name: ");
+        String name = scanner.nextLine().trim();
+        System.out.print("Enter age: ");
+        int age = readInt();
+        System.out.print("Enter contact number: ");
+        String contact = scanner.nextLine().trim();
+        System.out.print("Enter blood type (A+, A-, B+, B-, AB+, AB-, O+, O-): ");
+        String type = scanner.nextLine().trim().toUpperCase();
+        if(!BloodUnit.isValidBloodType(type)) {
+            System.out.println("Invalid blood type. Donor not added.");
+            return;
+        }
+        Donor d = new Donor(UUID.randomUUID().toString(), name, type, age, contact);
+        boolean ok = manager.addDonor(d);
+        System.out.println(ok ? "Donor registered successfully." : "Donor already exists (by name+type).");
+    }
+
+    private static void listDonors() {
+        List<Donor> ds = manager.listDonors();
+        if(ds.isEmpty()) {
+            System.out.println("No donors registered.");
+            return;
+        }
+        System.out.println("\n--- Donors ---");
+        ds.forEach(System.out::println);
+    }
+
+    private static void addBloodUnit() {
+        System.out.print("Enter donor name (or press enter to skip): ");
+        String donorName = scanner.nextLine().trim();
+        System.out.print("Enter blood type: ");
+        String type = scanner.nextLine().trim().toUpperCase();
+        if(!BloodUnit.isValidBloodType(type)) { System.out.println("Invalid blood type."); return; }
+        System.out.print("Enter units (ml, integer): ");
+        int units = readInt();
+        if(units <= 0) { System.out.println("Units must be positive."); return; }
+        LocalDate donationDate = LocalDate.now();
+        LocalDate expiry = donationDate.plusDays(42); // assume 42 days shelf-life for RBCs
+        BloodUnit bu = new BloodUnit(UUID.randomUUID().toString(), type, units, donationDate, expiry, donorName.isEmpty() ? "Unknown" : donorName);
+        manager.addBloodUnit(bu);
+        System.out.println("Blood unit added successfully. Expiry: " + expiry.toString());
+    }
+    private static void listInventory() {
+        List<BloodUnit> inv = manager.listInventory();
+        if(inv.isEmpty()) {
+            System.out.println("Inventory is empty.");
+            return;
+        }
+        System.out.println("\n--- Inventory ---");
+        inv.forEach(System.out::println);
+    }
+
+    private static void matchRecipient() {
+        System.out.print("Recipient name: ");
+        String name = scanner.nextLine().trim();
+        System.out.print("Blood type needed: ");
+        String need = scanner.nextLine().trim().toUpperCase();
+        if(!BloodUnit.isValidBloodType(need)) { System.out.println("Invalid blood type."); return; }
+        System.out.print("Units required (ml): ");
+        int unitsNeeded = readInt();
+        Recipient r = new Recipient(UUID.randomUUID().toString(), name, need, unitsNeeded);
+        List<BloodUnit> matched = manager.matchRecipient(r);
+        if(matched.isEmpty()) {
+            System.out.println("No matching blood units available.");
+        } else {
+            System.out.println("Matched units (to be allocated):");
+            matched.forEach(System.out::println);
+            // Optionally deduct units (simple logic)
+            manager.allocateUnits(matched, unitsNeeded);
+            System.out.println("Units allocated to recipient: " + name);
+        }
+    }
+
+    private static void removeExpired() {
+        int removed = manager.removeExpired();
+        System.out.println("Removed expired units: " + removed);
+    }
+
+    private static void saveData() {
+        System.out.print("Enter filename to save (default blood_data.txt): ");
+        String fname = scanner.nextLine().trim();
+        if(fname.isEmpty()) fname = "blood_data.txt";
+        manager.saveToFile(fname);
+        System.out.println("Saved to " + fname);
+    }
+
+    private static void loadData() {
+        System.out.print("Enter filename to load (default blood_data.txt): ");
+        String fname = scanner.nextLine().trim();
+        if(fname.isEmpty()) fname = "blood_data.txt";
+        manager.loadFromFile(fname);
+        System.out.println("Loaded from " + fname);
+    }
+
+    private static int readInt() {
+        try {
+            String s = scanner.nextLine().trim();
+            return Integer.parseInt(s);
+        } catch(Exception e) {
+            return -1;
+        }
+    }
+}
+
+/* ---------------------- Domain classes ---------------------- */
+
+class Donor {
+    String id;
+    String name;
+    String bloodType;
+    int age;
+    String contact;
+
+    Donor(String id, String name, String bloodType, int age, String contact) {
+        this.id = id; this.name = name; this.bloodType = bloodType; this.age = age; this.contact = contact;
+    }
+
+    @Override
+    public String toString() {
+        return String.format("Donor[id=%s, name=%s, type=%s, age=%d, contact=%s]", id.substring(0,6), name, bloodType, age, contact);
+    }
+}
+
+class Recipient {
+    String id;
+    String name;
+    String bloodTypeNeeded;
+    int unitsNeeded;
+
+    Recipient(String id, String name, String bloodTypeNeeded, int unitsNeeded) {
+        this.id = id; this.name = name; this.bloodTypeNeeded = bloodTypeNeeded; this.unitsNeeded = unitsNeeded;
+    }
+}
+
+class BloodUnit {
+    String id;
+    String bloodType;
+    int units; // in ml
+    LocalDate donationDate;
+    LocalDate expiryDate;
+    String donorName;
+
+    private static final Set<String> VALID = new HashSet<>(Arrays.asList("A+","A-","B+","B-","AB+","AB-","O+","O-"));
+    private static final DateTimeFormatter F = DateTimeFormatter.ISO_LOCAL_DATE;
+
+    BloodUnit(String id, String bloodType, int units, LocalDate donationDate, LocalDate expiryDate, String donorName) {
+        this.id = id; this.bloodType = bloodType; this.units = units; this.donationDate = donationDate; this.expiryDate = expiryDate; this.donorName = donorName;
+    }
+
+    boolean isExpired() {
+        return LocalDate.now().isAfter(expiryDate);
+    }
+
+    static boolean isValidBloodType(String s) {
+        return VALID.contains(s);
+    }
+    @Override
+    public String toString() {
+        return String.format("Unit[id=%s, type=%s, units=%dml, donated=%s, expiry=%s, donor=%s]",
+            id.substring(0,6), bloodType, units, donationDate.format(F), expiryDate.format(F), donorName);
+    }
+}
+
+/* ---------------------- Manager ---------------------- */
+
+class BloodBankManager {
+    private List<Donor> donors = new ArrayList<>();
+    private List<BloodUnit> inventory = new ArrayList<>();
+
+    public boolean addDonor(Donor d) {
+        for(Donor existing : donors) {
+            if(existing.name.equalsIgnoreCase(d.name) && existing.bloodType.equals(d.bloodType)) {
+                return false;
+            }
+        }
+        donors.add(d);
+        return true;
+    }
+
+    public List<Donor> listDonors() {
+        return Collections.unmodifiableList(donors);
+    }
+
+    public void addBloodUnit(BloodUnit bu) {
+        inventory.add(bu);
+    }
+
+    public List<BloodUnit> listInventory() {
+        return Collections.unmodifiableList(inventory);
+    }
+
+    // Very simple compatibility check (not a complete transfusion table)
+    private boolean compatible(String donorType, String recipientType) {
+        if(recipientType.equals("AB+")) return true;
+        if(donorType.equals("O-")) return true;
+        if(donorType.equals(recipientType)) return true;
+        // basic ABO rules:
+        if(donorType.equals("O+") && (recipientType.endsWith("+"))) return true;
+        if(donorType.equals("A-") && (recipientType.startsWith("A") || recipientType.startsWith("AB"))) return true;
+        if(donorType.equals("B-") && (recipientType.startsWith("B") || recipientType.startsWith("AB"))) return true;
+        // otherwise conservative: require exact match
+        return donorType.equals(recipientType);
+    }
+
+    public List<BloodUnit> matchRecipient(Recipient r) {
+        List<BloodUnit> candidates = new ArrayList<>();
+        int needed = r.unitsNeeded;
+        // sort inventory by earliest expiry first
+        inventory.sort(Comparator.comparing(b -> b.expiryDate));
+        for(BloodUnit bu : inventory) {
+            if(bu.isExpired()) continue;
+            if(compatible(bu.bloodType, r.bloodTypeNeeded)) {
+                candidates.add(bu);
+                needed -= bu.units;
+                if(needed <= 0) break;
+            }
+        }
+        // if not enough units matched, return empty
+        int total = candidates.stream().mapToInt(b -> b.units).sum();
+        if(total < r.unitsNeeded) return Collections.emptyList();
+        return candidates;
+    }
+
+    // Deduct allocated units from inventory (simple reduction and removal if fully used)
+    public void allocateUnits(List<BloodUnit> matched, int unitsNeeded) {
+        int remaining = unitsNeeded;
+        for(BloodUnit bu : new ArrayList<>(inventory)) {
+            if(matched.contains(bu)) {
+                if(bu.units <= remaining) {
+                    remaining -= bu.units;
+                    inventory.remove(bu);
+                } else {
+                    bu.units -= remaining;
+                    remaining = 0;
+                }
+            }
+            if(remaining <= 0) break;
+        }
+    }
+
+    public int removeExpired() {
+        int before = inventory.size();
+        inventory.removeIf(BloodUnit::isExpired);
+        return before - inventory.size();
+    }
+
+    /* Simple text persistence: donors and inventory in a readable format */
+    public void saveToFile(String filename) {
+        try(PrintWriter pw = new PrintWriter(new FileWriter(filename))) {
+            pw.println("#DONORS");
+            for(Donor d : donors) {
+                pw.println(String.join("|", d.id, escape(d.name), d.bloodType, Integer.toString(d.age), escape(d.contact)));
+            }
+            pw.println("#UNITS");
+            for(BloodUnit u : inventory) {
+                pw.println(String.join("|", u.id, u.bloodType, Integer.toString(u.units), u.donationDate.toString(), u.expiryDate.toString(), escape(u.donorName)));
+            }
+        } catch(IOException e) {
+            System.out.println("Error saving file: " + e.getMessage());
+        }
+    }
+
+    public void loadFromFile(String filename) {
+        File f = new File(filename);
+        if(!f.exists()) return;
+        try(BufferedReader br = new BufferedReader(new FileReader(f))) {
+            String line;
+            boolean inDonors = false;
+            boolean inUnits = false;
+            donors.clear(); inventory.clear();
+            while((line = br.readLine()) != null) {
+                if(line.trim().isEmpty()) continue;
+                if(line.startsWith("#DONORS")) { inDonors = true; inUnits = false; continue; }
+                if(line.startsWith("#UNITS")) { inUnits = true; inDonors = false; continue; }
+                if(inDonors) {
+                    String[] p = line.split("\\|", -1);
+                    if(p.length >= 5) {
+                        donors.add(new Donor(p[0], unescape(p[1]), p[2], Integer.parseInt(p[3]), unescape(p[4])));
+                    }
+                } else if(inUnits) {
+                    String[] p = line.split("\\|", -1);
+                    if(p.length >= 6) {
+                        inventory.add(new BloodUnit(p[0], p[1], Integer.parseInt(p[2]), LocalDate.parse(p[3]), LocalDate.parse(p[4]), unescape(p[5])));
+                    }
+                }
+            }
+        } catch(IOException e) {
+            System.out.println("Error loading file: " + e.getMessage());
+        }
+    }
+
+    private String escape(String s) {
+        return s.replace("|", "/pipe/");
+    }
+    private String unescape(String s) {
+        return s.replace("/pipe/", "|");
+    }
+}
